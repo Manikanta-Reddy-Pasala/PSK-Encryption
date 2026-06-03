@@ -1,20 +1,28 @@
 import React, { useState } from 'react';
-import { CHUNK_SIZE, importKeyFromHex, encryptChunk } from './cryptoUtils';
+import { CHUNK_SIZE, importKeyFromHex, decryptChunk } from './cryptoUtils';
 
-export default function FileEncryptor({ psk }) {
+export default function FileDecryptor({ psk }) {
     const [file, setFile] = useState(null);
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState('');
 
-    const handleEncrypt = async () => {
+    const handleDecrypt = async () => {
         if (!file || !psk) return;
 
         try {
             let handle = null;
             if (window.showSaveFilePicker) {
                 try {
+                    // Remove .enc extension if it exists, otherwise use original name
+                    let suggestedName = file.name;
+                    if (suggestedName.endsWith('.enc')) {
+                        suggestedName = suggestedName.slice(0, -4);
+                    } else {
+                        suggestedName = 'decrypted_' + suggestedName;
+                    }
+
                     handle = await window.showSaveFilePicker({
-                        suggestedName: file.name + '.enc',
+                        suggestedName: suggestedName,
                     });
                 } catch (err) {
                     if (err.name === 'AbortError') return;
@@ -30,21 +38,24 @@ export default function FileEncryptor({ psk }) {
             let offset = 0;
             const chunks = [];
 
-            setStatus('Encrypting...');
+            setStatus('Decrypting...');
+
+            // In encryption, chunks are CHUNK_SIZE + 12 (IV) + 16 (Auth Tag)
+            const ENCRYPTED_CHUNK_SIZE = CHUNK_SIZE + 12 + 16;
 
             while (offset < file.size) {
-                const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
+                const chunkBlob = file.slice(offset, offset + ENCRYPTED_CHUNK_SIZE);
                 const chunkBuffer = await chunkBlob.arrayBuffer();
 
-                const encryptedData = await encryptChunk(chunkBuffer, key);
+                const decryptedData = await decryptChunk(chunkBuffer, key);
 
                 if (writable) {
-                    await writable.write(encryptedData);
+                    await writable.write(decryptedData);
                 } else {
-                    chunks.push(encryptedData);
+                    chunks.push(decryptedData);
                 }
 
-                offset += CHUNK_SIZE;
+                offset += ENCRYPTED_CHUNK_SIZE;
                 setProgress(Math.min(100, Math.round((offset / file.size) * 100)));
             }
 
@@ -55,34 +66,35 @@ export default function FileEncryptor({ psk }) {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = file.name + '.enc';
+                let downloadName = file.name;
+                if (downloadName.endsWith('.enc')) {
+                    downloadName = downloadName.slice(0, -4);
+                } else {
+                    downloadName = 'decrypted_' + downloadName;
+                }
+                a.download = downloadName;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
             }
 
-            setStatus('Encryption complete!');
+            setStatus('Decryption complete!');
             setProgress(100);
         } catch (e) {
             console.error(e);
-            setStatus('Error during encryption: ' + e.message);
+            setStatus('Error during decryption: ' + e.message);
         }
     };
 
     return (
         <div style={{ padding: '20px', border: '1px solid #ccc', borderRadius: '8px', marginBottom: '20px', backgroundColor: '#f9f9f9' }}>
-            <h3>Encrypt File</h3>
-            <p style={{ fontSize: '0.9em', color: '#555' }}>
-                Select a file (e.g., config zip or software archive) to encrypt it with the current PSK.
-            </p>
-            <div style={{ fontSize: '0.85em', color: '#666', marginBottom: '15px', padding: '10px', backgroundColor: '#eee', borderRadius: '5px' }}>
-                <strong>How it works:</strong> The selected file is read locally in chunks (10MB). Each chunk is individually encrypted using AES-GCM (Advanced Encryption Standard with Galois/Counter Mode) with the provided Pre-Shared Key (PSK). A unique Initialization Vector (IV) and an Authentication Tag are generated for each chunk to ensure security and data integrity. The encrypted chunks are combined into a new file that you can download. All encryption happens securely inside your browser; the unencrypted file is never uploaded.
-            </div>
+            <h3>Decrypt File</h3>
+            <p style={{ fontSize: '0.9em', color: '#555' }}>Select an encrypted file to decrypt it with the current PSK.</p>
             <div style={{ marginBottom: '10px' }}>
                 <input type="file" onChange={e => setFile(e.target.files[0])} />
             </div>
-            <button onClick={handleEncrypt} disabled={!file || !psk}>Encrypt & Download</button>
+            <button onClick={handleDecrypt} disabled={!file || !psk}>Decrypt & Download</button>
             {status && <p style={{ marginTop: '10px' }}><strong>Status:</strong> {status}</p>}
             {progress > 0 && <progress value={progress} max="100" style={{ width: '100%', marginTop: '10px' }} />}
         </div>
