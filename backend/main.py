@@ -1,10 +1,18 @@
 import os
 import uuid
 import shutil
+import logging
+import zipfile
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from werkzeug.utils import secure_filename
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Omni Installer Backend")
 
@@ -17,7 +25,9 @@ app.add_middleware(
 )
 
 UPLOAD_DIR = "uploads"
+EXTRACT_DIR = os.path.join(UPLOAD_DIR, "extracted")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(EXTRACT_DIR, exist_ok=True)
 
 class InitUploadRequest(BaseModel):
     filename: str
@@ -34,6 +44,7 @@ active_uploads = {}
 def init_upload(req: InitUploadRequest):
     upload_id = str(uuid.uuid4())
     temp_filepath = os.path.join(UPLOAD_DIR, f"{upload_id}.part")
+    logger.info(f"Initializing upload for '{req.filename}' with ID {upload_id} (Expected size: {req.total_size} bytes)")
 
     # Initialize an empty file
     with open(temp_filepath, "wb") as f:
@@ -68,6 +79,8 @@ async def upload_chunk(
 
     upload_info["received_size"] += len(chunk_data)
 
+    logger.info(f"Received chunk {chunk_index} for upload {upload_id} ({len(chunk_data)} bytes)")
+
     return {"status": "success", "chunk_index": chunk_index}
 
 @app.post("/upload/finalize")
@@ -82,14 +95,30 @@ def finalize_upload(req: FinalizeUploadRequest):
 
     # Move/Rename from .part to final filename
     shutil.move(temp_filepath, final_filepath)
+    logger.info(f"Finalized upload {upload_id}. File saved to {final_filepath}")
+
+    # If it is a zip file, unzip it
+    extraction_path = None
+    if final_filepath.lower().endswith(".zip"):
+        extraction_path = os.path.join(EXTRACT_DIR, os.path.splitext(upload_info["filename"])[0])
+        os.makedirs(extraction_path, exist_ok=True)
+        logger.info(f"Zip file detected. Unzipping {final_filepath} to {extraction_path}...")
+        try:
+            with zipfile.ZipFile(final_filepath, 'r') as zip_ref:
+                zip_ref.extractall(extraction_path)
+            logger.info(f"Successfully unzipped files to {extraction_path}")
+        except zipfile.BadZipFile:
+            logger.error(f"Failed to unzip {final_filepath}. Not a valid zip file.")
+            extraction_path = None
 
     # Cleanup memory
     del active_uploads[upload_id]
 
     return {
         "status": "success",
-        "message": "File successfully assembled and saved",
-        "final_filepath": final_filepath
+        "message": "File successfully assembled and saved" + (" and extracted" if extraction_path else ""),
+        "final_filepath": final_filepath,
+        "extraction_path": extraction_path
     }
 
 @app.get("/")

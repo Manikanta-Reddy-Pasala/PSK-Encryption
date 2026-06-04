@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import './App.css';
 import FileEncryptor from './FileEncryptor';
+import FileDecryptor from './FileDecryptor';
 import FileUploader from './FileUploader';
 
 function App() {
@@ -70,6 +71,7 @@ function App() {
         </div>
 
         <FileEncryptor psk={psk} />
+        <FileDecryptor psk={psk} />
         <FileUploader psk={psk} />
       </header>
     </div>
