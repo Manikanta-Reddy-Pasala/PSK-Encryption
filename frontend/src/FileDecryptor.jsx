@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { CHUNK_SIZE, importKeyFromHex, decryptChunk } from './cryptoUtils';
+import { useState } from 'react';
+import { CHUNK_SIZE, importKeyFromHex, decryptChunk, DEFAULT_PSK } from './cryptoUtils';
 
-export default function FileDecryptor({ psk }) {
+export default function FileDecryptor({ customKey }) {
     const [file, setFile] = useState(null);
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState('');
 
     const handleDecrypt = async () => {
-        if (!file || !psk) return;
+        if (!file) return;
 
         try {
             let handle = null;
@@ -32,7 +32,16 @@ export default function FileDecryptor({ psk }) {
                 console.warn('File System Access API not supported in this browser. Fallback to Blob.');
             }
 
-            const key = await importKeyFromHex(psk);
+            const defaultKeyObj = await importKeyFromHex(DEFAULT_PSK);
+            let customKeyObj = null;
+            if (customKey) {
+                try {
+                    customKeyObj = await importKeyFromHex(customKey);
+                } catch (e) {
+                    console.warn("Invalid custom key format", e);
+                }
+            }
+
             const writable = handle ? await handle.createWritable() : null;
 
             let offset = 0;
@@ -47,7 +56,23 @@ export default function FileDecryptor({ psk }) {
                 const chunkBlob = file.slice(offset, offset + ENCRYPTED_CHUNK_SIZE);
                 const chunkBuffer = await chunkBlob.arrayBuffer();
 
-                const decryptedData = await decryptChunk(chunkBuffer, key);
+                let decryptedData = null;
+
+                if (customKeyObj) {
+                    try {
+                        decryptedData = await decryptChunk(chunkBuffer, customKeyObj);
+                    } catch (err) {
+                        console.warn("Decryption with custom key failed, falling back to default key", err);
+                    }
+                }
+
+                if (!decryptedData) {
+                    try {
+                        decryptedData = await decryptChunk(chunkBuffer, defaultKeyObj);
+                    } catch (err) {
+                        throw new Error("Decryption failed with both custom and default keys.", { cause: err });
+                    }
+                }
 
                 if (writable) {
                     await writable.write(decryptedData);
@@ -94,7 +119,7 @@ export default function FileDecryptor({ psk }) {
             <div style={{ marginBottom: '10px' }}>
                 <input type="file" onChange={e => setFile(e.target.files[0])} />
             </div>
-            <button onClick={handleDecrypt} disabled={!file || !psk}>Decrypt & Download</button>
+            <button onClick={handleDecrypt} disabled={!file}>Decrypt & Download</button>
             {status && <p style={{ marginTop: '10px' }}><strong>Status:</strong> {status}</p>}
             {progress > 0 && <progress value={progress} max="100" style={{ width: '100%', marginTop: '10px' }} />}
         </div>

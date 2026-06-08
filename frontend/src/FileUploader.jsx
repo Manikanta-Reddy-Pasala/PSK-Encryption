@@ -1,16 +1,24 @@
-import React, { useState } from 'react';
-import { ENCRYPTED_CHUNK_SIZE, importKeyFromHex, decryptChunk } from './cryptoUtils';
+import { useState } from 'react';
+import { ENCRYPTED_CHUNK_SIZE, importKeyFromHex, decryptChunk, DEFAULT_PSK } from './cryptoUtils';
 
-export default function FileUploader({ psk }) {
+export default function FileUploader({ customKey }) {
     const [file, setFile] = useState(null);
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState('');
 
     const handleUpload = async () => {
-        if (!file || !psk) return;
+        if (!file) return;
 
         try {
-            const key = await importKeyFromHex(psk);
+            const defaultKeyObj = await importKeyFromHex(DEFAULT_PSK);
+            let customKeyObj = null;
+            if (customKey) {
+                try {
+                    customKeyObj = await importKeyFromHex(customKey);
+                } catch (e) {
+                    console.warn("Invalid custom key format", e);
+                }
+            }
 
             setStatus('Initializing upload...');
             const initResponse = await fetch('http://localhost:8000/upload/init', {
@@ -37,7 +45,23 @@ export default function FileUploader({ psk }) {
                 const chunkBuffer = await chunkBlob.arrayBuffer();
 
                 // Decrypt
-                const decryptedData = await decryptChunk(chunkBuffer, key);
+                let decryptedData = null;
+
+                if (customKeyObj) {
+                    try {
+                        decryptedData = await decryptChunk(chunkBuffer, customKeyObj);
+                    } catch (err) {
+                        console.warn("Decryption with custom key failed, falling back to default key", err);
+                    }
+                }
+
+                if (!decryptedData) {
+                    try {
+                        decryptedData = await decryptChunk(chunkBuffer, defaultKeyObj);
+                    } catch (err) {
+                        throw new Error("Decryption failed with both custom and default keys.", { cause: err });
+                    }
+                }
 
                 // Upload decrypted chunk
                 const formData = new FormData();
@@ -81,7 +105,7 @@ export default function FileUploader({ psk }) {
             <div style={{ marginBottom: '10px' }}>
                 <input type="file" accept=".enc" onChange={e => setFile(e.target.files[0])} />
             </div>
-            <button onClick={handleUpload} disabled={!file || !psk}>Decrypt & Upload</button>
+            <button onClick={handleUpload} disabled={!file}>Decrypt & Upload</button>
             {status && <p style={{ marginTop: '10px' }}><strong>Status:</strong> {status}</p>}
             {progress > 0 && <progress value={progress} max="100" style={{ width: '100%', marginTop: '10px' }} />}
         </div>

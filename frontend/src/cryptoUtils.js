@@ -1,5 +1,6 @@
 export const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
 export const ENCRYPTED_CHUNK_SIZE = CHUNK_SIZE + 12 + 16; // 10MB + IV + Auth Tag
+export const DEFAULT_PSK = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"; // 64 hex char standard default key
 
 export async function importKeyFromHex(hexString) {
   // Strip spaces if any
