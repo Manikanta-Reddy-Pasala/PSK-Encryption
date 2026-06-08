@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
-import { CHUNK_SIZE, importKeyFromHex, encryptChunk } from './cryptoUtils';
+import { useState } from 'react';
+import { CHUNK_SIZE, importKeyFromHex, encryptChunk, DEFAULT_PSK } from './cryptoUtils';
 
-export default function FileEncryptor({ psk }) {
+export default function FileEncryptor({ customKey }) {
     const [file, setFile] = useState(null);
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState('');
 
     const handleEncrypt = async () => {
-        if (!file || !psk) return;
+        if (!file) return;
+        const pskToUse = customKey || DEFAULT_PSK;
 
         try {
             let handle = null;
@@ -24,7 +25,7 @@ export default function FileEncryptor({ psk }) {
                 console.warn('File System Access API not supported in this browser. Fallback to Blob.');
             }
 
-            const key = await importKeyFromHex(psk);
+            const key = await importKeyFromHex(pskToUse);
             const writable = handle ? await handle.createWritable() : null;
 
             let offset = 0;
@@ -82,7 +83,7 @@ export default function FileEncryptor({ psk }) {
             <div style={{ marginBottom: '10px' }}>
                 <input type="file" onChange={e => setFile(e.target.files[0])} />
             </div>
-            <button onClick={handleEncrypt} disabled={!file || !psk}>Encrypt & Download</button>
+            <button onClick={handleEncrypt} disabled={!file}>Encrypt & Download</button>
             {status && <p style={{ marginTop: '10px' }}><strong>Status:</strong> {status}</p>}
             {progress > 0 && <progress value={progress} max="100" style={{ width: '100%', marginTop: '10px' }} />}
         </div>
